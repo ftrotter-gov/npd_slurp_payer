@@ -3,3 +3,4 @@ payer_raw_data_cache/*
 venv/*
 .env
 __pycache__
+logs/*

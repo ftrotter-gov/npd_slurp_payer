@@ -511,10 +511,22 @@ class DownloadOrchestrator:
         Returns:
             List of successfully downloaded (or fresh) index file paths
         """
+        # Deduplicate URLs while preserving order
+        unique_urls = []
+        seen = set()
+        for url in urls:
+            if url not in seen:
+                unique_urls.append(url)
+                seen.add(url)
+        
+        if len(unique_urls) < len(urls):
+            duplicates = len(urls) - len(unique_urls)
+            logging.info(f"Removed {duplicates} duplicate URL(s), processing {len(unique_urls)} unique URLs")
+        
         index_files = []
         download_count = 0
         
-        for url in urls:
+        for url in unique_urls:
             filepath = FileSystemManager.url_to_filepath(url=url, output_dir=output_dir)
             
             # Check if file is fresh (applies to BOTH Phase 1 and Phase 2)
