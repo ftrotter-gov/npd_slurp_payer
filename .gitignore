@@ -1,3 +1,5 @@
 !payer_raw_data_cache/ReadMe.md
 payer_raw_data_cache/*
 venv/*
+.env
+__pycache__
