@@ -54,6 +54,66 @@ class ConfigLoader:
             return 1
 
 
+class ExcludedDomains:
+    """Manages list of domains that should not be crawled."""
+    
+    _excluded_domains: Set[str] = set()
+    _loaded: bool = False
+    
+    @staticmethod
+    def load_excluded_domains(*, csv_path: str = 'excluded_domain_list.csv') -> None:
+        """
+        Load excluded domains from CSV file.
+        
+        Args:
+            csv_path: Path to CSV file with excluded domains
+        """
+        if ExcludedDomains._loaded:
+            return
+        
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    domain = row.get('domain', '').strip().lower()
+                    if domain:
+                        ExcludedDomains._excluded_domains.add(domain)
+            
+            ExcludedDomains._loaded = True
+            if ExcludedDomains._excluded_domains:
+                logging.info(f"Loaded {len(ExcludedDomains._excluded_domains)} excluded domain(s)")
+        except FileNotFoundError:
+            logging.warning(f"step_10_download.py Warning: Excluded domains file not found: {csv_path}")
+            ExcludedDomains._loaded = True
+        except Exception as e:
+            logging.warning(f"step_10_download.py Warning: Failed to load excluded domains: {e}")
+            ExcludedDomains._loaded = True
+    
+    @staticmethod
+    def is_excluded(*, url: str) -> bool:
+        """
+        Check if a URL's domain is in the excluded list.
+        
+        Args:
+            url: URL to check
+            
+        Returns:
+            True if domain is excluded, False otherwise
+        """
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            
+            # Check exact match or if domain ends with any excluded domain
+            for excluded in ExcludedDomains._excluded_domains:
+                if domain == excluded or domain.endswith('.' + excluded):
+                    return True
+            
+            return False
+        except Exception:
+            return False
+
+
 class URLParser:
     """Handles parsing and validation of URLs from CSV and JSON files."""
     
@@ -131,13 +191,14 @@ class URLParser:
         
         Permissive approach: looks for any string value that appears to be a URL.
         Supports both absolute URLs (http://, https://) and relative paths.
+        Filters out URLs from excluded domains.
         
         Args:
             json_content: Raw JSON content as bytes
             base_url: Base URL for resolving relative paths
             
         Returns:
-            Set of discovered URLs
+            Set of discovered URLs (excluding filtered domains)
         """
         urls = set()
         
@@ -150,7 +211,19 @@ class URLParser:
         # Recursively extract URLs from the JSON structure
         URLParser._extract_urls_recursive(data=data, base_url=base_url, urls=urls)
         
-        return urls
+        # Filter out excluded domains
+        filtered_urls = set()
+        excluded_count = 0
+        for url in urls:
+            if ExcludedDomains.is_excluded(url=url):
+                excluded_count += 1
+            else:
+                filtered_urls.add(url)
+        
+        if excluded_count > 0:
+            logging.info(f"Filtered {excluded_count} URL(s) from excluded domains in {base_url}")
+        
+        return filtered_urls
     
     @staticmethod
     def _extract_urls_recursive(*, data: Any, base_url: str, urls: Set[str]) -> None:
@@ -463,6 +536,10 @@ class DownloadOrchestrator:
         logging.info(f"Output directory: {output_dir}")
         logging.info(f"Freshness threshold: {freshness_days} days")
         logging.info("="*70)
+        
+        # Load excluded domains
+        logging.info("\nLoading excluded domains...")
+        ExcludedDomains.load_excluded_domains()
         
         # Parse CSV to get starting URLs
         logging.info("\nParsing CSV file...")
